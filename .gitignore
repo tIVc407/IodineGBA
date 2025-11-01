@@ -1,0 +1,16 @@
+# Java compiled classes
+*.class
+java_gba/bin/
+
+# IDE files
+.idea/
+*.iml
+.vscode/
+.settings/
+.project
+.classpath
+
+# Build artifacts
+*.jar
+*.war
+*.ear
