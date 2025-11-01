@@ -53,4 +53,8 @@ public class GameBoyAdvanceWait {
     public void NonSequentialBroadcastClear() {
         // Clear non-sequential flag
     }
+
+    public void updateRenderStatus(int isRendering, int isOAMRendering) {
+        // TODO: Convert from Wait.js - update wait states based on rendering status
+    }
 }

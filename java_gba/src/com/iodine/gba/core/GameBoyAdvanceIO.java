@@ -48,6 +48,9 @@ public class GameBoyAdvanceIO {
     public GameBoyAdvanceWait wait;
     public GameBoyAdvanceCPU cpu;
 
+    // Graphics callback
+    public com.iodine.gba.graphics.GraphicsFrameCallback graphicsFrameCallback;
+
     // Instruction Sets
     public ARMInstructionSet ARM;
     public THUMBInstructionSet THUMB;
@@ -97,7 +100,7 @@ public class GameBoyAdvanceIO {
             dmaChannel2.initialize();
             dmaChannel3.initialize();
             gfxState.initialize();
-            gfxRenderer.initialize();
+            gfxRenderer.initialize(SKIPBoot);
             sound.initialize();
             timer.initialize();
             irq.initialize();
@@ -446,5 +449,13 @@ public class GameBoyAdvanceIO {
             fetch = dma.getCurrentFetchValue();
         }
         return fetch;
+    }
+
+    public void updateGraphicsClocking() {
+        // Update graphics clocking to ensure accurate timing
+        if (graphicsClocks > 0) {
+            gfxState.addClocks(graphicsClocks);
+            graphicsClocks = 0;
+        }
     }
 }

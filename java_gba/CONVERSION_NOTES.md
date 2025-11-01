@@ -43,10 +43,24 @@ This is a complete conversion of the IodineGBA JavaScript emulator to vanilla Ja
 - ✅ **GameBoyAdvanceSerial** - Serial I/O (stubbed)
 
 #### Graphics
-- ✅ **GameBoyAdvanceGraphics** - LCD controller (stubbed)
-- ✅ **GameBoyAdvanceRenderer** - Frame buffer rendering
+- ✅ **GameBoyAdvanceGraphics** - LCD controller (complete conversion from Graphics.js)
+- ✅ **GameBoyAdvanceRenderer** - Main graphics renderer (complete conversion from Renderer.js)
+- ⏳ **Sub-renderers** - Stub implementations (need conversion from JavaScript):
+  - GameBoyAdvanceCompositor (from Compositor.js)
+  - GameBoyAdvanceBGTEXTRenderer (from BGTEXT.js)
+  - GameBoyAdvanceAffineBGRenderer (from AffineBG.js)
+  - GameBoyAdvanceBGMatrixRenderer (from BGMatrix.js)
+  - GameBoyAdvanceBG2FrameBufferRenderer (from BG2FrameBuffer.js)
+  - GameBoyAdvanceOBJRenderer (from OBJ.js)
+  - GameBoyAdvanceWindowRenderer (from Window.js)
+  - GameBoyAdvanceOBJWindowRenderer (from OBJWindow.js)
+  - GameBoyAdvanceMosaicRenderer (from Mosaic.js)
+  - GameBoyAdvanceColorEffectsRenderer (from ColorEffects.js)
 - ✅ 240x160 RGB display buffer
 - ✅ Display output to GUI
+- ✅ Frame buffer swizzling (15-bit to RGB888)
+- ✅ Scanline queue and JIT rendering
+- ✅ All rendering modes (0-5) structure
 
 #### Audio
 - ✅ **GameBoyAdvanceSound** - Sound synthesis (stubbed)

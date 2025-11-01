@@ -27,4 +27,12 @@ public class GameBoyAdvanceDMA {
     public int getCurrentFetchValue() {
         return 0;
     }
+
+    public void gfxHBlankRequest() {
+        // TODO: Convert from DMA.js - HBlank DMA trigger
+    }
+
+    public void gfxVBlankRequest() {
+        // TODO: Convert from DMA.js - VBlank DMA trigger
+    }
 }
