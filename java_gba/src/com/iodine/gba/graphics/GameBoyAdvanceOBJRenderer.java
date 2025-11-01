@@ -6,14 +6,20 @@ package com.iodine.gba.graphics;
 public class GameBoyAdvanceOBJRenderer {
     public GameBoyAdvanceRenderer gfx;
     public byte[] OAM;
+    public int[] scratchWindowBuffer;  // For OBJ window rendering
 
     public GameBoyAdvanceOBJRenderer(GameBoyAdvanceRenderer gfx) {
         this.gfx = gfx;
         this.OAM = new byte[0x400];  // 1KB OAM
+        this.scratchWindowBuffer = new int[240];  // Scratch buffer for window rendering
     }
 
     public void initialize() {
         // TODO: Convert from OBJ.js
+        // Initialize the window buffer to transparent
+        for (int i = 0; i < 240; i++) {
+            scratchWindowBuffer[i] = 0x3800000;  // Transparent
+        }
     }
 
     public void renderScanLine(int line) {

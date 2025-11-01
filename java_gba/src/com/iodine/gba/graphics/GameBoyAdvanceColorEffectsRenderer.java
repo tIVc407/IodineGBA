@@ -41,4 +41,15 @@ public class GameBoyAdvanceColorEffectsRenderer {
     public void writeBLDY8(int data) {
         // TODO: Convert from ColorEffects.js
     }
+
+    // Stub methods used by compositors - will be properly implemented when converting ColorEffects.js
+    public int processPixelNormal(int lowerPixel, int currentPixel) {
+        // For now, just return the current pixel without effects
+        return currentPixel & 0x7FFF;
+    }
+
+    public int processPixelSprite(int lowerPixel, int currentPixel) {
+        // For now, just return the current pixel without blending
+        return currentPixel & 0x7FFF;
+    }
 }
