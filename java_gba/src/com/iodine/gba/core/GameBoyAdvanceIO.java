@@ -458,4 +458,8 @@ public class GameBoyAdvanceIO {
             graphicsClocks = 0;
         }
     }
+
+    public void updateTimerClocking() {
+        sound.audioJIT();
+    }
 }

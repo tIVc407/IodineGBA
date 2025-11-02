@@ -345,4 +345,36 @@ public class GameBoyAdvanceMemory {
         // Simplified I/O register writing
         wait.singleClock();
     }
+
+    public int memoryReadDMA16(int address) {
+        return CPURead16(address);
+    }
+
+    public void memoryWriteDMA16(int address, int data) {
+        CPUWrite16(address, data);
+    }
+
+    public int memoryReadDMA32(int address) {
+        return CPURead32(address);
+    }
+
+    public void memoryWriteDMA32(int address, int data) {
+        CPUWrite32(address, data);
+    }
+
+    public int memoryReadDMAFull16(int address) {
+        return CPURead16(address);
+    }
+
+    public int memoryReadDMAFull32(int address) {
+        return CPURead32(address);
+    }
+
+    public void memoryWriteDMAFull16(int address, int data) {
+        CPUWrite16(address, data);
+    }
+
+    public void memoryWriteDMAFull32(int address, int data) {
+        CPUWrite32(address, data);
+    }
 }
