@@ -1,469 +1,242 @@
 package com.iodine.gba.graphics;
 
-/**
- * GameBoyAdvanceBGTEXTRenderer - Text/tile background renderer (converted from BGTEXT.js)
- * Copyright (C) 2012-2015 Grant Galitz
- *
- * Handles regular tile-based backgrounds for modes 0-1.
- * Supports:
- * - 4bpp (16-color) and 8bpp (256-color) tiles
- * - Horizontal and vertical scrolling
- * - Tile flipping (horizontal and vertical)
- * - Multiple screen sizes (32x32, 64x32, 32x64, 64x64 tiles)
- * - Mosaic effects
- */
+import com.iodine.gba.core.GameBoyAdvanceIO;
+import java.nio.IntBuffer;
+import java.nio.ShortBuffer;
+
 public class GameBoyAdvanceBGTEXTRenderer {
-    public GameBoyAdvanceRenderer gfx;
-    public int BGLayer;
-    public int offset;  // Buffer offset for this layer
 
-    // References to parent renderer's data
-    public byte[] VRAM;
-    public java.nio.ShortBuffer VRAM16;
-    public java.nio.IntBuffer VRAM32;
-    public int[] palette16;
-    public int[] palette256;
-    public int[] buffer;
+    private GameBoyAdvanceRenderer renderer;
+    private int bgNumber;
 
-    // Scratch buffers for tile rendering
-    public int[] tileFetched;  // 8 pixels of current tile
+    // Buffers
+    private int[] scratchBuffer;
+    private int[] tileFetched;
 
-    // Scroll coordinates (9-bit values)
-    public int BGXCoord;
-    public int BGYCoord;
+    // BG control registers
+    private int BGXCoord = 0;
+    private int BGYCoord = 0;
+    private int do256 = 0;
+    private int doMosaic = 0;
+    private int tileMode = 0;
+    private int priorityFlag = 0;
+    private int BGScreenBaseBlock = 0;
+    private int BGCharacterBaseBlock = 0;
 
-    // Rendering state
-    public int do256;       // 0=4bpp, 1=8bpp
-    public int doMosaic;    // Mosaic enable
-    public int priorityFlag;
+    // VRAM and palettes
+    private byte[] VRAM;
+    private ShortBuffer VRAM16;
+    private IntBuffer VRAM32;
+    private int[] palette16;
+    private int[] palette256;
 
-    // Screen configuration
-    public int tileMode;    // 0=32x32, 1=64x32, 2=32x64, 3=64x64
-    public int BGScreenBaseBlock;
-    public int BGCharacterBaseBlock;
 
-    // Reference to mosaic renderer
-    public GameBoyAdvanceMosaicRenderer mosaicRenderer;
-
-    public GameBoyAdvanceBGTEXTRenderer(GameBoyAdvanceRenderer gfx, int BGLayer) {
-        this.gfx = gfx;
-        this.BGLayer = BGLayer;
-        this.offset = (BGLayer << 8) + 0x100;  // BG0=0x100, BG1=0x200, BG2=0x300, BG3=0x400
+    public GameBoyAdvanceBGTEXTRenderer(GameBoyAdvanceRenderer renderer, int bgNumber) {
+        this.renderer = renderer;
+        this.bgNumber = bgNumber;
     }
 
     public void initialize() {
-        // Get references from parent renderer
-        VRAM = gfx.VRAM;
-        VRAM16 = gfx.VRAM16;
-        VRAM32 = gfx.VRAM32;
-        palette16 = gfx.palette16;
-        palette256 = gfx.palette256;
-        buffer = gfx.buffer;
-        mosaicRenderer = gfx.mosaicRenderer;
-
-        // Initialize scratch buffer for tile fetching
-        tileFetched = new int[8];
-
-        // Initialize state
-        BGXCoord = 0;
-        BGYCoord = 0;
-        do256 = 0;
-        doMosaic = 0;
-
-        // Initialize configuration
+        this.VRAM = this.renderer.VRAM;
+        this.VRAM16 = this.renderer.VRAM16;
+        this.VRAM32 = this.renderer.VRAM32;
+        this.palette16 = this.renderer.palette16;
+        this.palette256 = this.renderer.palette256;
+        int offset = (this.bgNumber << 8) + 0x100;
+        this.scratchBuffer = this.renderer.buffer;
+        this.tileFetched = new int[8];
         screenSizePreprocess(0);
         priorityPreprocess(0);
         screenBaseBlockPreprocess(0);
         characterBaseBlockPreprocess(0);
     }
 
-    /**
-     * Render a scanline.
-     * This is the main entry point called by the graphics renderer.
-     */
     public void renderScanLine(int line) {
-        // Apply mosaic Y offset if enabled
-        if (doMosaic != 0) {
-            line = line - mosaicRenderer.getMosaicYOffset(line);
+        if (this.doMosaic != 0) {
+            //Correct line number for mosaic:
+            line = line - (this.renderer.mosaicRenderer.getMosaicYOffset(line));
         }
-
-        // Calculate tile coordinates
-        int yTileOffset = (line + BGYCoord) & 0x7;
-        int yTileStart = (line + BGYCoord) >> 3;
-        int xTileStart = BGXCoord >> 3;
-
-        // Render the tiles based on color mode
-        if (do256 != 0) {
-            // 8-bit palette mode (256 colors)
-            render8BITLine(yTileStart, xTileStart, yTileOffset);
-        } else {
-            // 4-bit palette mode (16 colors)
-            render4BITLine(yTileStart, xTileStart, yTileOffset);
+        int yTileOffset = (line + this.BGYCoord) & 0x7;
+        int yTileStart = (line + this.BGYCoord) >> 3;
+        int xTileStart = this.BGXCoord >> 3;
+        //Render the tiles:
+        if (this.do256 != 0) {
+            //8-bit palette mode:
+            this.render8BITLine(yTileStart, xTileStart, yTileOffset);
         }
-
-        // Apply horizontal mosaic if enabled
-        if (doMosaic != 0) {
-            mosaicRenderer.renderMosaicHorizontal(offset);
+        else {
+            //4-bit palette mode:
+            this.render4BITLine(yTileStart, xTileStart, yTileOffset);
+        }
+        if (this.doMosaic != 0) {
+            //Pixelize the line horizontally:
+            this.renderer.mosaicRenderer.renderMosaicHorizontal((this.bgNumber << 8) + 0x100);
         }
     }
 
-    /**
-     * Render a scanline in 8-bit color mode.
-     */
-    public void render8BITLine(int yTileStart, int xTileStart, int yTileOffset) {
-        // Fetch first tile attributes
-        int chrData = fetchTile(yTileStart, xTileStart);
-        xTileStart++;
-
-        // Get 8 pixels of data
-        process8BitVRAM(chrData, yTileOffset);
-
-        // Copy the buffered tile to line (handles partial first tile)
-        fetchVRAMStart();
-
-        // Render the rest of the tiles fast
-        renderWholeTiles8BIT(xTileStart, yTileStart, yTileOffset);
+    private void render8BITLine(int yTileStart, int xTileStart, int yTileOffset) {
+        int chrData = this.fetchTile(yTileStart, xTileStart);
+        xTileStart = xTileStart + 1;
+        this.process8BitVRAM(chrData, yTileOffset);
+        this.fetchVRAMStart();
+        this.renderWholeTiles8BIT(xTileStart, yTileStart, yTileOffset);
     }
 
-    /**
-     * Render a scanline in 4-bit color mode.
-     */
-    public void render4BITLine(int yTileStart, int xTileStart, int yTileOffset) {
-        // Fetch first tile attributes
-        int chrData = fetchTile(yTileStart, xTileStart);
-        xTileStart++;
-
-        // Get 8 pixels of data
-        process4BitVRAM(chrData, yTileOffset);
-
-        // Copy the buffered tile to line (handles partial first tile)
-        fetchVRAMStart();
-
-        // Render the rest of the tiles fast
-        renderWholeTiles4BIT(xTileStart, yTileStart, yTileOffset);
+    private void render4BITLine(int yTileStart, int xTileStart, int yTileOffset) {
+        int chrData = this.fetchTile(yTileStart, xTileStart);
+        xTileStart = xTileStart + 1;
+        this.process4BitVRAM(chrData, yTileOffset);
+        this.fetchVRAMStart();
+        this.renderWholeTiles4BIT(xTileStart, yTileStart, yTileOffset);
     }
 
-    /**
-     * Render whole tiles in 8-bit mode.
-     * Process full 8 pixels at a time.
-     */
-    public void renderWholeTiles8BIT(int xTileStart, int yTileStart, int yTileOffset) {
-        // Process full 8 pixels at a time
-        for (int position = 8 - (BGXCoord & 0x7); position < 240; position += 8) {
-            // Fetch tile attributes and get 8 pixels of data
-            process8BitVRAM(fetchTile(yTileStart, xTileStart), yTileOffset);
-
-            // Copy the buffered tile to line
-            buffer[offset + position] = tileFetched[0];
-            buffer[offset + position + 1] = tileFetched[1];
-            buffer[offset + position + 2] = tileFetched[2];
-            buffer[offset + position + 3] = tileFetched[3];
-            buffer[offset + position + 4] = tileFetched[4];
-            buffer[offset + position + 5] = tileFetched[5];
-            buffer[offset + position + 6] = tileFetched[6];
-            buffer[offset + position + 7] = tileFetched[7];
-
-            // Increment tile counter
-            xTileStart++;
+    private void renderWholeTiles8BIT(int xTileStart, int yTileStart, int yTileOffset) {
+        for (int position = 8 - (this.BGXCoord & 0x7); position < 240; position += 8) {
+            this.process8BitVRAM(this.fetchTile(yTileStart, xTileStart), yTileOffset);
+            System.arraycopy(this.tileFetched, 0, this.scratchBuffer, position + (this.bgNumber << 8) + 0x100, 8);
+            xTileStart = xTileStart + 1;
         }
     }
 
-    /**
-     * Render whole tiles in 4-bit mode.
-     * Process full 8 pixels at a time.
-     */
-    public void renderWholeTiles4BIT(int xTileStart, int yTileStart, int yTileOffset) {
-        // Process full 8 pixels at a time
-        for (int position = 8 - (BGXCoord & 0x7); position < 240; position += 8) {
-            // Fetch tile attributes and get 8 pixels of data
-            process4BitVRAM(fetchTile(yTileStart, xTileStart), yTileOffset);
-
-            // Copy the buffered tile to line
-            buffer[offset + position] = tileFetched[0];
-            buffer[offset + position + 1] = tileFetched[1];
-            buffer[offset + position + 2] = tileFetched[2];
-            buffer[offset + position + 3] = tileFetched[3];
-            buffer[offset + position + 4] = tileFetched[4];
-            buffer[offset + position + 5] = tileFetched[5];
-            buffer[offset + position + 6] = tileFetched[6];
-            buffer[offset + position + 7] = tileFetched[7];
-
-            // Increment tile counter
-            xTileStart++;
+    private void renderWholeTiles4BIT(int xTileStart, int yTileStart, int yTileOffset) {
+        for (int position = 8 - (this.BGXCoord & 0x7); position < 240; position += 8) {
+            this.process4BitVRAM(this.fetchTile(yTileStart, xTileStart), yTileOffset);
+            System.arraycopy(this.tileFetched, 0, this.scratchBuffer, position + (this.bgNumber << 8) + 0x100, 8);
+            xTileStart = xTileStart + 1;
         }
     }
 
-    /**
-     * Handle the first tile of the scan-line specially.
-     * The first tile may be partial based on BGXCoord offset.
-     */
-    public void fetchVRAMStart() {
-        int pixelPipelinePosition = BGXCoord & 0x7;
-
-        // Use fall-through switch to copy pixels starting from the offset
-        switch (pixelPipelinePosition) {
-            case 0:
-                buffer[offset + 0] = tileFetched[0];
-            case 1:
-                buffer[offset + 1 - pixelPipelinePosition] = tileFetched[1];
-            case 2:
-                buffer[offset + 2 - pixelPipelinePosition] = tileFetched[2];
-            case 3:
-                buffer[offset + 3 - pixelPipelinePosition] = tileFetched[3];
-            case 4:
-                buffer[offset + 4 - pixelPipelinePosition] = tileFetched[4];
-            case 5:
-                buffer[offset + 5 - pixelPipelinePosition] = tileFetched[5];
-            case 6:
-                buffer[offset + 6 - pixelPipelinePosition] = tileFetched[6];
-            default:
-                buffer[offset + 7 - pixelPipelinePosition] = tileFetched[7];
-        }
+    private void fetchVRAMStart() {
+        int pixelPipelinePosition = this.BGXCoord & 0x7;
+        int offset = (this.bgNumber << 8) + 0x100;
+        System.arraycopy(this.tileFetched, pixelPipelinePosition, this.scratchBuffer, offset, 8 - pixelPipelinePosition);
     }
 
-    /**
-     * Fetch tile attributes from the tilemap.
-     * Returns a 16-bit value containing tile number and flip/palette attributes.
-     */
-    public int fetchTile(int yTileStart, int xTileStart) {
-        // Find the tile code to locate the tile block
-        int address = computeTileNumber(yTileStart, xTileStart) + BGScreenBaseBlock;
-        return VRAM16.get(address & 0x7FFF) & 0xFFFF;
+    private int fetchTile(int yTileStart, int xTileStart) {
+        int address = (this.computeTileNumber(yTileStart, xTileStart) + this.BGScreenBaseBlock);
+        return this.VRAM16.get(address & 0x7FFF) & 0xFFFF;
     }
 
-    /**
-     * Compute the tile number based on screen size mode and tile coordinates.
-     *
-     * Screen size modes:
-     * 0: 32x32 tiles (256x256 pixels)
-     * 1: 64x32 tiles (512x256 pixels)
-     * 2: 32x64 tiles (256x512 pixels)
-     * 3: 64x64 tiles (512x512 pixels)
-     */
-    public int computeTileNumber(int yTile, int xTile) {
+    private int computeTileNumber(int yTile, int xTile) {
         int tileNumber = xTile & 0x1F;
-
-        switch (tileMode) {
-            case 0:  // 1x1 (32x32 tiles)
+        switch (this.tileMode) {
+            case 0:
                 tileNumber = tileNumber | ((yTile & 0x1F) << 5);
                 break;
-            case 1:  // 2x1 (64x32 tiles)
+            case 1:
                 tileNumber = tileNumber | (((xTile & 0x20) | (yTile & 0x1F)) << 5);
                 break;
-            case 2:  // 1x2 (32x64 tiles)
+            case 2:
                 tileNumber = tileNumber | ((yTile & 0x3F) << 5);
                 break;
-            case 3:  // 2x2 (64x64 tiles)
+            default:
                 tileNumber = tileNumber | (((xTile & 0x20) | (yTile & 0x1F)) << 5) | ((yTile & 0x20) << 6);
-                break;
         }
-
         return tileNumber;
     }
 
-    /**
-     * Process a 4-bit tile from VRAM.
-     * Handles vertical flip and calls render function.
-     */
-    public void process4BitVRAM(int chrData, int yOffset) {
-        // Parse flip attributes, grab palette, and then output pixel
+    private void process4BitVRAM(int chrData, int yOffset) {
         int address = (chrData & 0x3FF) << 3;
-        address += BGCharacterBaseBlock;
-
+        address = address + this.BGCharacterBaseBlock;
         if ((chrData & 0x800) == 0) {
-            // No vertical flip
-            address += yOffset;
+            address = address + yOffset;
         } else {
-            // Vertical flip
-            address += 7 - yOffset;
+            address = address + 7 - yOffset;
         }
-
-        // Copy out our pixels (pass palette and flip info)
-        render4BitVRAM(chrData >> 8, address);
+        this.render4BitVRAM(chrData >> 8, address);
     }
 
-    /**
-     * Render 8 pixels from 4-bit VRAM data.
-     * Each pixel is 4 bits (16 colors from one of 16 palettes).
-     */
-    public void render4BitVRAM(int chrData, int address) {
-        // Check if tile address is valid
+    private void render4BitVRAM(int chrData, int address) {
         if (address < 0x4000) {
-            // Tile address valid
             int paletteOffset = chrData & 0xF0;
-            int data = VRAM32.get(address);
-
+            int data = this.VRAM32.get(address);
             if ((chrData & 0x4) == 0) {
-                // Normal horizontal
-                tileFetched[0] = palette16[paletteOffset | (data & 0xF)] | priorityFlag;
-                tileFetched[1] = palette16[paletteOffset | ((data >> 4) & 0xF)] | priorityFlag;
-                tileFetched[2] = palette16[paletteOffset | ((data >> 8) & 0xF)] | priorityFlag;
-                tileFetched[3] = palette16[paletteOffset | ((data >> 12) & 0xF)] | priorityFlag;
-                tileFetched[4] = palette16[paletteOffset | ((data >> 16) & 0xF)] | priorityFlag;
-                tileFetched[5] = palette16[paletteOffset | ((data >> 20) & 0xF)] | priorityFlag;
-                tileFetched[6] = palette16[paletteOffset | ((data >> 24) & 0xF)] | priorityFlag;
-                tileFetched[7] = palette16[paletteOffset | (data >>> 28)] | priorityFlag;
+                this.tileFetched[0] = this.palette16[paletteOffset | (data & 0xF)] | this.priorityFlag;
+                this.tileFetched[1] = this.palette16[paletteOffset | ((data >> 4) & 0xF)] | this.priorityFlag;
+                this.tileFetched[2] = this.palette16[paletteOffset | ((data >> 8) & 0xF)] | this.priorityFlag;
+                this.tileFetched[3] = this.palette16[paletteOffset | ((data >> 12) & 0xF)] | this.priorityFlag;
+                this.tileFetched[4] = this.palette16[paletteOffset | ((data >> 16) & 0xF)] | this.priorityFlag;
+                this.tileFetched[5] = this.palette16[paletteOffset | ((data >> 20) & 0xF)] | this.priorityFlag;
+                this.tileFetched[6] = this.palette16[paletteOffset | ((data >> 24) & 0xF)] | this.priorityFlag;
+                this.tileFetched[7] = this.palette16[paletteOffset | (data >>> 28)] | this.priorityFlag;
             } else {
-                // Flipped horizontally
-                tileFetched[0] = palette16[paletteOffset | (data >>> 28)] | priorityFlag;
-                tileFetched[1] = palette16[paletteOffset | ((data >> 24) & 0xF)] | priorityFlag;
-                tileFetched[2] = palette16[paletteOffset | ((data >> 20) & 0xF)] | priorityFlag;
-                tileFetched[3] = palette16[paletteOffset | ((data >> 16) & 0xF)] | priorityFlag;
-                tileFetched[4] = palette16[paletteOffset | ((data >> 12) & 0xF)] | priorityFlag;
-                tileFetched[5] = palette16[paletteOffset | ((data >> 8) & 0xF)] | priorityFlag;
-                tileFetched[6] = palette16[paletteOffset | ((data >> 4) & 0xF)] | priorityFlag;
-                tileFetched[7] = palette16[paletteOffset | (data & 0xF)] | priorityFlag;
+                this.tileFetched[0] = this.palette16[paletteOffset | (data >>> 28)] | this.priorityFlag;
+                this.tileFetched[1] = this.palette16[paletteOffset | ((data >> 24) & 0xF)] | this.priorityFlag;
+                this.tileFetched[2] = this.palette16[paletteOffset | ((data >> 20) & 0xF)] | this.priorityFlag;
+                this.tileFetched[3] = this.palette16[paletteOffset | ((data >> 16) & 0xF)] | this.priorityFlag;
+                this.tileFetched[4] = this.palette16[paletteOffset | ((data >> 12) & 0xF)] | this.priorityFlag;
+                this.tileFetched[5] = this.palette16[paletteOffset | ((data >> 8) & 0xF)] | this.priorityFlag;
+                this.tileFetched[6] = this.palette16[paletteOffset | ((data >> 4) & 0xF)] | this.priorityFlag;
+                this.tileFetched[7] = this.palette16[paletteOffset | (data & 0xF)] | this.priorityFlag;
             }
         } else {
-            // Tile address invalid
-            addressInvalidRender();
+            this.addressInvalidRender();
         }
     }
 
-    /**
-     * Process an 8-bit tile from VRAM.
-     * Handles horizontal and vertical flip and calls render function.
-     */
-    public void process8BitVRAM(int chrData, int yOffset) {
-        // Parse flip attributes and output pixels
+    private void process8BitVRAM(int chrData, int yOffset) {
         int address = (chrData & 0x3FF) << 4;
-        address += BGCharacterBaseBlock;
-
-        // Handle flip attributes
+        address = address + this.BGCharacterBaseBlock;
         switch (chrData & 0xC00) {
-            case 0:  // No flip
-                address += yOffset << 1;
-                render8BitVRAMNormal(address);
+            case 0:
+                address = address + (yOffset << 1);
+                this.render8BitVRAMNormal(address);
                 break;
-            case 0x400:  // Horizontal flip
-                address += yOffset << 1;
-                render8BitVRAMFlipped(address);
+            case 0x400:
+                address = address + (yOffset << 1);
+                this.render8BitVRAMFlipped(address);
                 break;
-            case 0x800:  // Vertical flip
-                address += 14 - (yOffset << 1);
-                render8BitVRAMNormal(address);
+            case 0x800:
+                address = address + 14 - (yOffset << 1);
+                this.render8BitVRAMNormal(address);
                 break;
-            default:  // Horizontal & Vertical flip
-                address += 14 - (yOffset << 1);
-                render8BitVRAMFlipped(address);
-                break;
+            default:
+                address = address + 14 - (yOffset << 1);
+                this.render8BitVRAMFlipped(address);
         }
     }
 
-    /**
-     * Render 8 pixels from 8-bit VRAM data (normal horizontal order).
-     * Each pixel is 8 bits (256 colors).
-     */
-    public void render8BitVRAMNormal(int address) {
+    private void render8BitVRAMNormal(int address) {
         if (address < 0x4000) {
-            // Tile address valid - normal horizontal
-            int data = VRAM32.get(address);
-            tileFetched[0] = palette256[data & 0xFF] | priorityFlag;
-            tileFetched[1] = palette256[(data >> 8) & 0xFF] | priorityFlag;
-            tileFetched[2] = palette256[(data >> 16) & 0xFF] | priorityFlag;
-            tileFetched[3] = palette256[data >>> 24] | priorityFlag;
-
-            data = VRAM32.get(address + 1);
-            tileFetched[4] = palette256[data & 0xFF] | priorityFlag;
-            tileFetched[5] = palette256[(data >> 8) & 0xFF] | priorityFlag;
-            tileFetched[6] = palette256[(data >> 16) & 0xFF] | priorityFlag;
-            tileFetched[7] = palette256[data >>> 24] | priorityFlag;
+            int data = this.VRAM32.get(address);
+            this.tileFetched[0] = this.palette256[data & 0xFF] | this.priorityFlag;
+            this.tileFetched[1] = this.palette256[(data >> 8) & 0xFF] | this.priorityFlag;
+            this.tileFetched[2] = this.palette256[(data >> 16) & 0xFF] | this.priorityFlag;
+            this.tileFetched[3] = this.palette256[data >>> 24] | this.priorityFlag;
+            data = this.VRAM32.get(address + 1);
+            this.tileFetched[4] = this.palette256[data & 0xFF] | this.priorityFlag;
+            this.tileFetched[5] = this.palette256[(data >> 8) & 0xFF] | this.priorityFlag;
+            this.tileFetched[6] = this.palette256[(data >> 16) & 0xFF] | this.priorityFlag;
+            this.tileFetched[7] = this.palette256[data >>> 24] | this.priorityFlag;
         } else {
-            // Tile address invalid
-            addressInvalidRender();
+            this.addressInvalidRender();
         }
     }
 
-    /**
-     * Render 8 pixels from 8-bit VRAM data (flipped horizontal order).
-     * Each pixel is 8 bits (256 colors).
-     */
-    public void render8BitVRAMFlipped(int address) {
+    private void render8BitVRAMFlipped(int address) {
         if (address < 0x4000) {
-            // Tile address valid - flipped horizontally
-            int data = VRAM32.get(address);
-            tileFetched[4] = palette256[data >>> 24] | priorityFlag;
-            tileFetched[5] = palette256[(data >> 16) & 0xFF] | priorityFlag;
-            tileFetched[6] = palette256[(data >> 8) & 0xFF] | priorityFlag;
-            tileFetched[7] = palette256[data & 0xFF] | priorityFlag;
-
-            data = VRAM32.get(address + 1);
-            tileFetched[0] = palette256[data >>> 24] | priorityFlag;
-            tileFetched[1] = palette256[(data >> 16) & 0xFF] | priorityFlag;
-            tileFetched[2] = palette256[(data >> 8) & 0xFF] | priorityFlag;
-            tileFetched[3] = palette256[data & 0xFF] | priorityFlag;
+            int data = this.VRAM32.get(address);
+            this.tileFetched[4] = this.palette256[data >>> 24] | this.priorityFlag;
+            this.tileFetched[5] = this.palette256[(data >> 16) & 0xFF] | this.priorityFlag;
+            this.tileFetched[6] = this.palette256[(data >> 8) & 0xFF] | this.priorityFlag;
+            this.tileFetched[7] = this.palette256[data & 0xFF] | this.priorityFlag;
+            data = this.VRAM32.get(address + 1);
+            this.tileFetched[0] = this.palette256[data >>> 24] | this.priorityFlag;
+            this.tileFetched[1] = this.palette256[(data >> 16) & 0xFF] | this.priorityFlag;
+            this.tileFetched[2] = this.palette256[(data >> 8) & 0xFF] | this.priorityFlag;
+            this.tileFetched[3] = this.palette256[data & 0xFF] | this.priorityFlag;
         } else {
-            // Tile address invalid
-            addressInvalidRender();
+            this.addressInvalidRender();
         }
     }
 
-    /**
-     * Fill tile buffer with transparency for invalid tile addresses.
-     * In GBA mode on NDS, we display transparency on invalid tiles.
-     */
-    public void addressInvalidRender() {
-        // Transparency is 0x3800000 (bit 25 set) OR'd with priority
-        int data = 0x3800000 | priorityFlag;
-        tileFetched[0] = data;
-        tileFetched[1] = data;
-        tileFetched[2] = data;
-        tileFetched[3] = data;
-        tileFetched[4] = data;
-        tileFetched[5] = data;
-        tileFetched[6] = data;
-        tileFetched[7] = data;
+    private void addressInvalidRender() {
+        int data = this.renderer.backdrop | this.priorityFlag;
+        for (int i = 0; i < 8; ++i) {
+            this.tileFetched[i] = data;
+        }
     }
 
-    /**
-     * Enable or disable mosaic effect for this layer.
-     */
-    public void setMosaicEnable(int doMosaic) {
-        this.doMosaic = doMosaic;
-    }
-
-    /**
-     * Select palette mode: 0=4bpp (16 colors), 1=8bpp (256 colors).
-     */
-    public void paletteModeSelect(int do256) {
-        this.do256 = do256;
-    }
-
-    /**
-     * Set the screen size mode.
-     */
-    public void screenSizePreprocess(int BGScreenSize) {
-        this.tileMode = BGScreenSize;
-    }
-
-    /**
-     * Set priority and layer flags for rendered pixels.
-     */
-    public void priorityPreprocess(int BGPriority) {
-        // Priority in bits 23-24, layer flag in bit (0x10 + BGLayer)
-        priorityFlag = (BGPriority << 23) | (1 << (BGLayer + 0x10));
-    }
-
-    /**
-     * Set screen base block (tilemap location in VRAM).
-     */
-    public void screenBaseBlockPreprocess(int BGScreenBaseBlock) {
-        this.BGScreenBaseBlock = BGScreenBaseBlock << 10;
-    }
-
-    /**
-     * Set character base block (tile data location in VRAM).
-     */
-    public void characterBaseBlockPreprocess(int BGCharacterBaseBlock) {
-        this.BGCharacterBaseBlock = BGCharacterBaseBlock << 12;
-    }
-
-    // Register write methods
-
-    /**
-     * Write to BGCNT register (lower 8 bits).
-     * Controls priority, character base, mosaic, and palette mode.
-     */
     public void writeBGCNT8_0(int data) {
         setMosaicEnable(data & 0x40);
         paletteModeSelect(data & 0x80);
@@ -471,18 +244,11 @@ public class GameBoyAdvanceBGTEXTRenderer {
         characterBaseBlockPreprocess((data & 0xC) >> 2);
     }
 
-    /**
-     * Write to BGCNT register (upper 8 bits).
-     * Controls screen size and screen base block.
-     */
     public void writeBGCNT8_1(int data) {
         screenSizePreprocess((data & 0xC0) >> 6);
         screenBaseBlockPreprocess(data & 0x1F);
     }
 
-    /**
-     * Write to BGCNT register (16 bits).
-     */
     public void writeBGCNT16(int data) {
         setMosaicEnable(data & 0x40);
         paletteModeSelect(data & 0x80);
@@ -492,53 +258,56 @@ public class GameBoyAdvanceBGTEXTRenderer {
         screenBaseBlockPreprocess((data >> 8) & 0x1F);
     }
 
-    /**
-     * Write to BGHOFS register (horizontal scroll, lower 8 bits).
-     */
     public void writeBGHOFS8_0(int data) {
-        BGXCoord = (BGXCoord & 0x100) | (data & 0xFF);
+        this.BGXCoord = (this.BGXCoord & 0x100) | data;
     }
 
-    /**
-     * Write to BGHOFS register (horizontal scroll, upper 8 bits).
-     */
     public void writeBGHOFS8_1(int data) {
-        BGXCoord = ((data & 0xFF) << 8) | (BGXCoord & 0xFF);
+        this.BGXCoord = (data << 8) | (this.BGXCoord & 0xFF);
     }
 
-    /**
-     * Write to BGHOFS register (horizontal scroll, 16 bits).
-     */
     public void writeBGHOFS16(int data) {
-        BGXCoord = data & 0x1FF;
+        this.BGXCoord = data;
     }
 
-    /**
-     * Write to BGVOFS register (vertical scroll, lower 8 bits).
-     */
     public void writeBGVOFS8_0(int data) {
-        BGYCoord = (BGYCoord & 0x100) | (data & 0xFF);
+        this.BGYCoord = (this.BGYCoord & 0x100) | data;
     }
 
-    /**
-     * Write to BGVOFS register (vertical scroll, upper 8 bits).
-     */
     public void writeBGVOFS8_1(int data) {
-        BGYCoord = ((data & 0xFF) << 8) | (BGYCoord & 0xFF);
+        this.BGYCoord = (data << 8) | (this.BGYCoord & 0xFF);
     }
 
-    /**
-     * Write to BGVOFS register (vertical scroll, 16 bits).
-     */
     public void writeBGVOFS16(int data) {
-        BGYCoord = data & 0x1FF;
+        this.BGYCoord = data;
     }
 
-    /**
-     * Write to both BGHOFS and BGVOFS registers (32 bits).
-     */
     public void writeBGOFS32(int data) {
-        BGXCoord = data & 0x1FF;
-        BGYCoord = (data >> 16) & 0x1FF;
+        this.BGXCoord = data & 0x1FF;
+        this.BGYCoord = data >> 16;
+    }
+
+    private void setMosaicEnable(int doMosaic) {
+        this.doMosaic = doMosaic;
+    }
+
+    private void paletteModeSelect(int do256) {
+        this.do256 = do256;
+    }
+
+    private void screenSizePreprocess(int BGScreenSize) {
+        this.tileMode = BGScreenSize;
+    }
+
+    private void priorityPreprocess(int BGPriority) {
+        this.priorityFlag = (BGPriority << 23) | (1 << (this.bgNumber + 0x10));
+    }
+
+    private void screenBaseBlockPreprocess(int BGScreenBaseBlock) {
+        this.BGScreenBaseBlock = BGScreenBaseBlock << 10;
+    }
+
+    private void characterBaseBlockPreprocess(int BGCharacterBaseBlock) {
+        this.BGCharacterBaseBlock = BGCharacterBaseBlock << 12;
     }
 }

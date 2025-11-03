@@ -154,6 +154,55 @@ public class GameBoyAdvanceCPU {
         IOCore.deflagIRQ();
     }
 
+    public void HLEIRQEnter() {
+        //Get the base address:
+        int currentAddress = this.registers[0xD];
+        //Updating the address bus away from PC fetch:
+        this.wait.NonSequentialBroadcast();
+        //Push register(s) into memory:
+        for (int rListPosition = 0xF; rListPosition > -1; rListPosition = rListPosition - 1) {
+            if ((0x500F & (1 << rListPosition)) != 0) {
+                //Push a register into memory:
+                currentAddress = currentAddress - 4;
+                this.memory.CPUWrite32(currentAddress, this.registers[rListPosition]);
+            }
+        }
+        //Store the updated base address back into register:
+        this.registers[0xD] = currentAddress;
+        //Updating the address bus back to PC fetch:
+        this.wait.NonSequentialBroadcast();
+        this.registers[0] = 0x4000000;
+        //Save link register:
+        this.registers[14] = 0x130;
+        //Skip BIOS ROM processing:
+        branch(this.memory.CPURead32(0x3FFFFFC) & -0x4);
+    }
+
+    public void HLEIRQExit() {
+        //Get the base address:
+        int currentAddress = this.registers[0xD];
+        //Updating the address bus away from PC fetch:
+        this.wait.NonSequentialBroadcast();
+        //Load register(s) from memory:
+        for (int rListPosition = 0; rListPosition < 0x10; rListPosition = rListPosition + 1) {
+            if ((0x500F & (1 << rListPosition)) != 0) {
+                //Load a register from memory:
+                this.registers[rListPosition & 0xF] = this.memory.CPURead32(currentAddress);
+                currentAddress = currentAddress + 4;
+            }
+        }
+        //Store the updated base address back into register:
+        this.registers[0xD] = currentAddress;
+        //Updating the address bus back to PC fetch:
+        this.wait.NonSequentialBroadcast();
+        //Return from an exception mode:
+        int data = this.branchFlags.setSUBFlags(this.registers[0xE], 4);
+        //Restore SPSR to CPSR:
+        data = data & (-4 >> (this.SPSRtoCPSR() >> 5));
+        //We performed a branch:
+        this.branch(data);
+    }
+
     public void IRQinTHUMB() {
         // Mode bits are set to IRQ
         switchMode(0x12);
