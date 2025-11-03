@@ -57,7 +57,7 @@ public class GameBoyAdvanceEmulator {
         calculateTimings();
     }
 
-    public void play() {
+    public void startEmulation() {
         if (emulatorStatus >= 0x10) {
             emulatorStatus = emulatorStatus & 0xF;
             if ((emulatorStatus & 0x1) == 0 && BIOS != null && ROM != null) {
@@ -68,6 +68,7 @@ public class GameBoyAdvanceEmulator {
                 }
                 importSave();
             }
+            emulatorStatus = 5; // Set status to "running"
             invalidateMetrics();
             setBufferSpace();
         }
@@ -106,13 +107,11 @@ public class GameBoyAdvanceEmulator {
         // Callback passes us a reference timestamp
         this.lastTimestamp = timestamp;
         switch (emulatorStatus) {
-            // Core initialized and saves loaded
             case 5:
                 iterationStartSequence();
                 IOCore.enter(CPUCyclesTotal);
                 iterationEndSequence();
                 break;
-            // Core initialized, but saves still loading
             case 1:
                 break;
             default:

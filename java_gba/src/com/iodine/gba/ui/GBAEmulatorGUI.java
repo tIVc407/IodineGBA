@@ -161,7 +161,7 @@ public class GBAEmulatorGUI extends JFrame {
 
     private void startEmulation() {
         if (!running) {
-            emulator.play();
+            emulator.startEmulation();
             running = true;
             emulatorTimer.start();
         }
@@ -205,8 +205,36 @@ public class GBAEmulatorGUI extends JFrame {
     }
 
     public static void main(String[] args) {
-        SwingUtilities.invokeLater(() -> {
-            new GBAEmulatorGUI();
-        });
+        if (args.length > 1 && args[0].equals("--headless")) {
+            System.out.println("Starting in headless mode...");
+            try {
+                String romPath = args[1];
+                File romFile = new File(romPath);
+                byte[] rom = Files.readAllBytes(romFile.toPath());
+
+                GameBoyAdvanceEmulator emulator = new GameBoyAdvanceEmulator();
+                emulator.attachROM(rom);
+
+                System.out.println("ROM loaded: " + romPath);
+                System.out.println("Starting emulation loop...");
+                emulator.startEmulation();
+
+                // Run the emulator loop manually
+                while (true) {
+                    emulator.timerCallback(System.currentTimeMillis());
+                    Thread.sleep(16);
+                }
+
+            } catch (Exception e) {
+                System.err.println("Headless emulation failed:");
+                e.printStackTrace();
+            }
+
+        } else {
+            System.out.println("Starting in GUI mode...");
+            SwingUtilities.invokeLater(() -> {
+                new GBAEmulatorGUI();
+            });
+        }
     }
 }

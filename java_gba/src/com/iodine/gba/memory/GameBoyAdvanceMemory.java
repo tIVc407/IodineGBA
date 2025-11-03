@@ -1,6 +1,7 @@
 package com.iodine.gba.memory;
 
 import com.iodine.gba.core.GameBoyAdvanceIO;
+import com.iodine.gba.core.GameBoyAdvanceJoyPad;
 
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
@@ -52,6 +53,7 @@ public class GameBoyAdvanceMemory {
 
     // Component references
     public GameBoyAdvanceWait wait;
+    public GameBoyAdvanceJoyPad joypad;
 
     public GameBoyAdvanceMemory(GameBoyAdvanceIO ioCore) {
         this.IOCore = ioCore;
@@ -120,6 +122,7 @@ public class GameBoyAdvanceMemory {
 
         // Get component references
         wait = IOCore.wait;
+        joypad = IOCore.joypad;
     }
 
     // Memory read methods
@@ -129,10 +132,10 @@ public class GameBoyAdvanceMemory {
         if (address < 0x4000) {
             // BIOS
             return BIOS[address] & 0xFF;
-        } else if (address >= 0x02000000 && address < 0x02040000) {
+        } else if (address >= 0x02000000 && address < 0x03000000) {
             // External WRAM
             return externalRAM[address & 0x3FFFF] & 0xFF;
-        } else if (address >= 0x03000000 && address < 0x03008000) {
+        } else if (address >= 0x03000000 && address < 0x04000000) {
             // Internal WRAM
             return internalRAM[address & 0x7FFF] & 0xFF;
         } else if (address >= 0x04000000 && address < 0x04000400) {
@@ -164,10 +167,10 @@ public class GameBoyAdvanceMemory {
         if (address < 0x4000) {
             // BIOS
             return BIOS16.get(address >> 1) & 0xFFFF;
-        } else if (address >= 0x02000000 && address < 0x02040000) {
+        } else if (address >= 0x02000000 && address < 0x03000000) {
             // External WRAM
             return externalRAM16.get((address & 0x3FFFF) >> 1) & 0xFFFF;
-        } else if (address >= 0x03000000 && address < 0x03008000) {
+        } else if (address >= 0x03000000 && address < 0x04000000) {
             // Internal WRAM
             return internalRAM16.get((address & 0x7FFF) >> 1) & 0xFFFF;
         } else if (address >= 0x04000000 && address < 0x04000400) {
@@ -196,10 +199,10 @@ public class GameBoyAdvanceMemory {
         if (address < 0x4000) {
             // BIOS
             return BIOS32.get(address >> 2);
-        } else if (address >= 0x02000000 && address < 0x02040000) {
+        } else if (address >= 0x02000000 && address < 0x03000000) {
             // External WRAM
             return externalRAM32.get((address & 0x3FFFF) >> 2);
-        } else if (address >= 0x03000000 && address < 0x03008000) {
+        } else if (address >= 0x03000000 && address < 0x04000000) {
             // Internal WRAM
             return internalRAM32.get((address & 0x7FFF) >> 2);
         } else if (address >= 0x04000000 && address < 0x04000400) {
@@ -226,11 +229,11 @@ public class GameBoyAdvanceMemory {
     public void CPUWrite8(int address, int data) {
         address &= 0x0FFFFFFF;
 
-        if (address >= 0x02000000 && address < 0x02040000) {
+        if (address >= 0x02000000 && address < 0x03000000) {
             // External WRAM
             wait.WRAMAccess();
             externalRAM[address & 0x3FFFF] = (byte) data;
-        } else if (address >= 0x03000000 && address < 0x03008000) {
+        } else if (address >= 0x03000000 && address < 0x04000000) {
             // Internal WRAM
             wait.singleClock();
             internalRAM[address & 0x7FFF] = (byte) data;
@@ -255,11 +258,11 @@ public class GameBoyAdvanceMemory {
     public void CPUWrite16(int address, int data) {
         address &= 0x0FFFFFFE;
 
-        if (address >= 0x02000000 && address < 0x02040000) {
+        if (address >= 0x02000000 && address < 0x03000000) {
             // External WRAM
             wait.WRAMAccess();
             externalRAM16.put((address & 0x3FFFF) >> 1, (short) data);
-        } else if (address >= 0x03000000 && address < 0x03008000) {
+        } else if (address >= 0x03000000 && address < 0x04000000) {
             // Internal WRAM
             wait.singleClock();
             internalRAM16.put((address & 0x7FFF) >> 1, (short) data);
@@ -281,11 +284,11 @@ public class GameBoyAdvanceMemory {
     public void CPUWrite32(int address, int data) {
         address &= 0x0FFFFFFC;
 
-        if (address >= 0x02000000 && address < 0x02040000) {
+        if (address >= 0x02000000 && address < 0x03000000) {
             // External WRAM
             wait.WRAMAccess32();
             externalRAM32.put((address & 0x3FFFF) >> 2, data);
-        } else if (address >= 0x03000000 && address < 0x03008000) {
+        } else if (address >= 0x03000000 && address < 0x04000000) {
             // Internal WRAM
             wait.singleClock();
             internalRAM32.put((address & 0x7FFF) >> 2, data);
@@ -315,35 +318,66 @@ public class GameBoyAdvanceMemory {
         return CPURead16(address);
     }
 
-    // I/O Register access (simplified - delegates to components)
     public int readIORegister8(int address) {
-        // Simplified I/O register reading - return 0 for now
-        return 0;
+        wait.singleClock();
+        switch (address) {
+            case 0x4000130:
+                return joypad.readKeyStatus8_0();
+            case 0x4000131:
+                return joypad.readKeyStatus8_1();
+            case 0x4000132:
+                return joypad.readKeyControl8_0();
+            case 0x4000133:
+                return joypad.readKeyControl8_1();
+            default:
+                return 0;
+        }
     }
 
     public int readIORegister16(int address) {
-        // Simplified I/O register reading - return 0 for now
-        return 0;
+        wait.singleClock();
+        switch (address & 0xFFFFFFFE) {
+            case 0x4000130:
+                return joypad.readKeyStatus16();
+            case 0x4000132:
+                return joypad.readKeyControl16();
+            default:
+                return 0;
+        }
     }
 
     public int readIORegister32(int address) {
-        // Simplified I/O register reading - return 0 for now
+        wait.singleClock();
+        if ((address & 0xFFFFFFFC) == 0x4000130) {
+            return joypad.readKeyStatusControl32();
+        }
         return 0;
     }
 
     public void writeIORegister8(int address, int data) {
-        // Simplified I/O register writing
         wait.singleClock();
+        switch (address) {
+            case 0x4000132:
+                joypad.writeKeyControl8_0(data);
+                break;
+            case 0x4000133:
+                joypad.writeKeyControl8_1(data);
+                break;
+        }
     }
 
     public void writeIORegister16(int address, int data) {
-        // Simplified I/O register writing
         wait.singleClock();
+        if ((address & 0xFFFFFFFE) == 0x4000132) {
+            joypad.writeKeyControl16(data);
+        }
     }
 
     public void writeIORegister32(int address, int data) {
-        // Simplified I/O register writing
         wait.singleClock();
+        if ((address & 0xFFFFFFFC) == 0x4000130) {
+            joypad.writeKeyControl16(data >> 16);
+        }
     }
 
     public int memoryReadDMA16(int address) {

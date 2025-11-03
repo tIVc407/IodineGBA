@@ -1,33 +1,55 @@
 package com.iodine.gba;
 
+import com.iodine.gba.core.GameBoyAdvanceEmulator;
 import com.iodine.gba.ui.GBAEmulatorGUI;
-
+import java.io.File;
+import java.io.IOException;
+import java.nio.file.Files;
 import javax.swing.SwingUtilities;
 
-/**
- * Main - Entry point for the GBA emulator
- */
 public class Main {
     public static void main(String[] args) {
-        System.out.println("==============================================");
-        System.out.println("  IodineGBA - Java Edition");
-        System.out.println("  Game Boy Advance Emulator");
-        System.out.println("==============================================");
-        System.out.println();
-        System.out.println("Controls:");
-        System.out.println("  Arrow Keys - D-Pad");
-        System.out.println("  Z - A Button");
-        System.out.println("  X - B Button");
-        System.out.println("  Enter - Start");
-        System.out.println("  Backspace - Select");
-        System.out.println("  A - R Shoulder");
-        System.out.println("  S - L Shoulder");
-        System.out.println();
-        System.out.println("Starting emulator...");
-        System.out.println();
+        if (args.length > 0 && args[0].equals("--headless")) {
+            runHeadless(args);
+        } else {
+            runGUI(args);
+        }
+    }
 
+    private static void runGUI(String[] args) {
+        System.out.println("Starting GUI...");
         SwingUtilities.invokeLater(() -> {
             new GBAEmulatorGUI();
         });
+    }
+
+    private static void runHeadless(String[] args) {
+        if (args.length < 2) {
+            System.err.println("Usage: --headless <rom_path>");
+            return;
+        }
+
+        String romPath = args[1];
+        System.out.println("Running in headless mode with ROM: " + romPath);
+
+        try {
+            byte[] rom = Files.readAllBytes(new File(romPath).toPath());
+            GameBoyAdvanceEmulator emulator = new GameBoyAdvanceEmulator();
+            emulator.startEmulation();
+            emulator.attachROM(rom);
+
+            while (true) {
+                emulator.timerCallback(System.currentTimeMillis());
+                try {
+                    Thread.sleep(16);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    break;
+                }
+            }
+
+        } catch (IOException e) {
+            System.err.println("Failed to read ROM file: " + e.getMessage());
+        }
     }
 }
